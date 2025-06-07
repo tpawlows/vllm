@@ -1,0 +1,120 @@
+######################### BASE IMAGE #########################
+FROM registry.access.redhat.com/ubi9/ubi as base
+
+WORKDIR /workspace/
+
+ARG PYTHON_VERSION=3.12
+ARG PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
+
+ENV LD_PRELOAD=""
+
+# Register this build container with Red Hat
+RUN subscription-manager register \
+      --username=*** \
+      --password=***
+
+# Install development tools and dependencies
+RUN dnf install -y \
+    git wget \
+    gcc gcc-c++ \
+    cmake make ninja-build \
+    libSM libXext mesa-libGL \
+    glibc-langpack-en \
+    numactl-devel \
+    libomp-devel \
+    python3-devel \
+    && dnf clean all
+
+RUN subscription-manager unregister && \
+    subscription-manager clean
+
+# Optional: GCC 12 from AppStream if needed
+# RUN dnf install -y gcc-toolset-12 && \
+#     echo "source /opt/rh/gcc-toolset-12/enable" >> /etc/profile
+
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+ENV CCACHE_DIR=/root/.cache/ccache
+# ENV CMAKE_CXX_COMPILER_LAUNCHER=ccache
+ENV CFLAGS="-O3 -mavx2 -mf16c -fopenmp"
+ENV CXXFLAGS="${CFLAGS}"
+ENV PATH="/root/.local/bin:$PATH"
+ENV VIRTUAL_ENV="/opt/venv"
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python
+
+RUN uv venv --python ${PYTHON_VERSION} --seed ${VIRTUAL_ENV}
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+ENV UV_HTTP_TIMEOUT=500
+
+# Install Python deps
+ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+ENV UV_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+ENV UV_INDEX_STRATEGY="unsafe-best-match"
+ENV UV_LINK_MODE="copy"
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,src=requirements/common.txt,target=requirements/common.txt \
+    --mount=type=bind,src=requirements/cpu.txt,target=requirements/cpu.txt \
+    uv pip install --upgrade pip && \
+    uv pip install -r requirements/cpu.txt
+
+# ENV LD_PRELOAD="/usr/lib64/libtcmalloc_minimal.so.4:/opt/venv/lib/libiomp5.so:$LD_PRELOAD"
+
+RUN echo 'ulimit -c 0' >> ~/.bashrc
+
+######################### BUILD IMAGE #########################
+FROM base AS vllm-build
+
+ARG GIT_REPO_CHECK=0
+ARG VLLM_CPU_DISABLE_AVX512
+ENV VLLM_CPU_DISABLE_AVX512=${VLLM_CPU_DISABLE_AVX512}
+
+WORKDIR /workspace/vllm
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,src=requirements/build.txt,target=requirements/build.txt \
+    uv pip install -r requirements/build.txt
+
+COPY . .
+RUN --mount=type=bind,source=.git,target=.git \
+    if [ "$GIT_REPO_CHECK" != 0 ]; then bash tools/check_repo.sh ; fi
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/ccache \
+    --mount=type=bind,source=.git,target=.git \
+    VLLM_TARGET_DEVICE=cpu python3 setup.py bdist_wheel 
+
+######################### DEV IMAGE #########################
+FROM vllm-build AS vllm-dev
+
+WORKDIR /workspace/vllm
+
+RUN dnf install -y vim numactl && dnf clean all
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -e tests/vllm_test_utils 
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/ccache \
+    --mount=type=bind,source=.git,target=.git \
+    VLLM_TARGET_DEVICE=cpu python3 setup.py develop 
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r requirements/dev.txt && \
+    pre-commit install --hook-type pre-commit --hook-type commit-msg
+
+ENTRYPOINT ["bash"]
+
+######################### RELEASE IMAGE #########################
+FROM base AS vllm-openai
+
+WORKDIR /workspace/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cache/ccache \
+    --mount=type=bind,from=vllm-build,src=/workspace/vllm/dist,target=dist \
+    uv pip install dist/*.whl
+
+
+ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
