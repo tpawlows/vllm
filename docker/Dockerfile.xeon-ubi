@@ -10,10 +10,12 @@
 #   VLLM_CPU_AVX512BF16=true (default)|false
 #   VLLM_CPU_AVX512VNNI=true (default)|false
 
+ARG UBI_VERSION=9
+
 ###############################
 # Stage 1: Base Image
 ###############################
-FROM registry.access.redhat.com/ubi10 AS base
+FROM registry.access.redhat.com/ubi${UBI_VERSION} AS base
 
 ARG PYTHON_VERSION=3.12
 ARG PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
@@ -107,7 +109,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ###############################
 # Stage 3: Runtime Environment
 ###############################
-FROM registry.access.redhat.com/ubi10 AS runtime
+FROM registry.access.redhat.com/ubi${UBI_VERSION} AS runtime
 
 ARG PYTHON_VERSION=3.12
 ARG GPERFTOOLS_VERSION=2.17.2
@@ -124,7 +126,7 @@ ARG CPU_VISIBLE_MEMORY_NODES
 # Requires AMX CPU flag (SPR and onwards).
 ARG VLLM_CPU_MOE_PREPACK=1
 # The kernels require AMX instruction set, BFloat16 weight type and weight shapes divisible by 32. 
-# Set to 1 to enable if your CPU supports it.
+# Set to 1 to enable if your CPU supports it. Works on UBI10, but not UBI9 due to older glibc.
 ARG VLLM_CPU_SGL_KERNEL=1
 # Controls the number of threads used by PyTorch's TorchInductor compiler for optimization.
 ARG TORCHINDUCTOR_COMPILE_THREADS=1
