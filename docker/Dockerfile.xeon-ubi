@@ -155,7 +155,7 @@ ARG CPU_VISIBLE_MEMORY_NODES
 # Requires AMX CPU flag (SPR and onwards).
 ARG VLLM_CPU_MOE_PREPACK=1
 # The kernels require AMX instruction set, BFloat16 weight type and weight shapes divisible by 32. 
-# Set to 1 to enable if your CPU supports it. Works on UBI10, but not UBI9 due to older glibc.
+# Set to 1 to enable if your CPU supports it.
 ARG VLLM_CPU_SGL_KERNEL=1
 # Controls the number of threads used by PyTorch's TorchInductor compiler for optimization.
 ARG TORCHINDUCTOR_COMPILE_THREADS=1
