@@ -6,7 +6,7 @@
 #
 # Build arguments:
 #   PYTHON_VERSION=3.13|3.12 (default)|3.11|3.10
-#   VLLM_VERSION=main (default)|<tag>|<branch>
+#   VLLM_VERSION=v0.12.0 (default)|<tag>|<branch>
 #   VLLM_CPU_DISABLE_AVX512=false (default)|true
 #   VLLM_CPU_AVX512BF16=true (default)|false
 #   VLLM_CPU_AVX512VNNI=true (default)|false
@@ -40,7 +40,8 @@ FROM toolchain-ubi${UBI_VERSION} AS base
 
 ARG PYTHON_VERSION=3.12
 ARG PIP_EXTRA_INDEX_URL="https://download.pytorch.org/whl/cpu"
-ARG VLLM_VERSION="main"
+# Last commit of v0.12.0 release: 4fd9d6a85c00ac0186aa9abbeff73fc2ac6c721e, 03.12.2025 (dd/mm/yyyy)
+ARG VLLM_VERSION="releases/v0.12.0"
 ARG NUMACTL_VERSION=2.0.19
 ARG MARCH="sapphirerapids"
 
